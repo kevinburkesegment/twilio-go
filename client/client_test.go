@@ -323,12 +323,16 @@ func (m *MockOAuth) GetAccessToken(ctx context.Context) (string, error) {
 	return "mock_token", nil
 }
 
+func (m *MockOAuth) IsRefreshRequest(method, path string) bool {
+	return method == http.MethodPost && path == "/v1/token"
+}
+
 func TestClient_SendRequestWithOAuth(t *testing.T) {
 	oauth := &MockOAuth{}
 	client := twilio.Client{
 		Credentials: twilio.NewCredentials("", ""),
 	}
-	client.SetOauth(oauth)
+	client.OAuth = oauth
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "Bearer mock_token", r.Header.Get("Authorization"))

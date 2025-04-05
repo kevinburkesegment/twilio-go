@@ -138,8 +138,9 @@ type ClientCredentialProvider struct {
 }
 
 // ClientParams holds the parameters required to initialize a Twilio RestClient.
-// Incase where the ClientCredentialProvider is provided, the Username and Password fields are ignored.
-// And when neither is provided, the environment variables TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are used.
+// In the case where the ClientCredentialProvider is provided, the Username
+// and Password fields are ignored.
+// If neither is provided, the environment variables TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are used.
 type ClientParams struct {
 	// Username is the account SID for authentication.
 	Username string
@@ -157,6 +158,7 @@ type ClientParams struct {
 func NewRestClientWithParams(params ClientParams) *RestClient {
 	requestHandler := client.NewRequestHandler(params.Client)
 
+	var iamService *IamV1.ApiService
 	if params.Client == nil && params.ClientCredentialProvider == nil {
 		username := params.Username
 		if username == "" {
@@ -184,8 +186,9 @@ func NewRestClientWithParams(params ClientParams) *RestClient {
 		}
 		handler := client.NewRequestHandler(oauthClient)
 		clientCredentials := &OAuthCredentials{params.ClientCredentialProvider.GrantType, params.ClientCredentialProvider.ClientId, params.ClientCredentialProvider.ClientSecret}
-		oauth := NewAPIOAuth(handler, clientCredentials)
-		oauthClient.SetOauth(oauth)
+		iamService = IamV1.NewApiService(handler)
+		oauth := NewAPIOAuth(iamService, clientCredentials)
+		oauthClient.OAuth = oauth
 		if params.AccountSid != "" {
 			oauthClient.SetAccountSid(params.AccountSid)
 		}
@@ -210,7 +213,11 @@ func NewRestClientWithParams(params ClientParams) *RestClient {
 	c.FlexV1 = FlexV1.NewApiService(c.RequestHandler)
 	c.FlexV2 = FlexV2.NewApiService(c.RequestHandler)
 	c.FrontlineV1 = FrontlineV1.NewApiService(c.RequestHandler)
-	c.IamV1 = IamV1.NewApiService(c.RequestHandler)
+	if iamService != nil {
+		c.IamV1 = iamService
+	} else {
+		c.IamV1 = IamV1.NewApiService(c.RequestHandler)
+	}
 	c.InsightsV1 = InsightsV1.NewApiService(c.RequestHandler)
 	c.IntelligenceV2 = IntelligenceV2.NewApiService(c.RequestHandler)
 	c.IpMessagingV1 = IpMessagingV1.NewApiService(c.RequestHandler)

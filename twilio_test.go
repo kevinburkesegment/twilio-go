@@ -1,6 +1,8 @@
 package twilio
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,8 +38,27 @@ func TestClientCredentialProvider(t *testing.T) {
 		ClientCredentialProvider: &creds,
 	},
 	)
+	count := 0
+	var firstURL, secondURL string
+	var grant string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			firstURL = r.URL.String()
+			grant = r.FormValue("grant_type")
+		} else {
+			secondURL = r.URL.String()
+		}
+	}))
+	defer server.Close()
 
-	assert.Equal(t, "client_credentials", client.Client.OAuth().(*APIOAuth).creds.GrantType)
-	assert.Equal(t, "mock_client_id", client.Client.OAuth().(*APIOAuth).creds.ClientId)
-	assert.Equal(t, "mock_client_secret", client.Client.OAuth().(*APIOAuth).creds.ClientSecret)
+	client.IamV1.SetBaseURL(server.URL)
+
+	resp, err := client.Client.SendRequest("GET", server.URL+"/anyurl", nil, nil)
+	assert.Equal(t, count, 2, "Expected 2 requests to be made, first an oauth request, then the actual request")
+	assert.Equal(t, firstURL, "/v1/token")
+	assert.Equal(t, secondURL, "/anyurl")
+	assert.Equal(t, grant, "client_credentials")
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }

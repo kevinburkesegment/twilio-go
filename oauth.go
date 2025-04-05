@@ -3,10 +3,10 @@ package twilio
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/twilio/twilio-go/client"
 	iam "github.com/twilio/twilio-go/rest/iam/v1"
 )
 
@@ -75,8 +75,8 @@ type APIOAuth struct {
 }
 
 // NewAPIOAuth creates a new APIOAuth instance with the provided request handler and credentials.
-func NewAPIOAuth(c *client.RequestHandler, creds *OAuthCredentials) *APIOAuth {
-	a := &APIOAuth{iamService: iam.NewApiService(c), creds: creds}
+func NewAPIOAuth(srv *iam.ApiService, creds *OAuthCredentials) *APIOAuth {
+	a := &APIOAuth{iamService: srv, creds: creds}
 	return a
 }
 
@@ -92,11 +92,13 @@ func (a *APIOAuth) GetAccessToken(ctx context.Context) (string, error) {
 	if a.tokenAuth.Token != "" && !expired {
 		return a.tokenAuth.Token, nil
 	}
+	fmt.Println("init create token params")
 	params := &iam.CreateTokenParams{}
 	params.SetGrantType(a.creds.GrantType).
 		SetClientId(a.creds.ClientId).
 		SetClientSecret(a.creds.ClientSecret)
-	a.iamService.RequestHandler().Client.SetOauth(nil) // set oauth to nil to make no-auth request
+
+	fmt.Println("call create token", params)
 	token, err := a.iamService.CreateToken(params)
 	if err == nil {
 		a.tokenAuth = TokenAuth{
@@ -111,4 +113,8 @@ func (a *APIOAuth) GetAccessToken(ctx context.Context) (string, error) {
 	}
 
 	return *token.AccessToken, nil
+}
+
+func (a *APIOAuth) IsRefreshRequest(method, path string) bool {
+	return method == http.MethodPost && path == "/v1/token"
 }

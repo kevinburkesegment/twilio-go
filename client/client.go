@@ -39,6 +39,10 @@ func NewCredentials(username string, password string) *Credentials {
 
 type OAuth interface {
 	GetAccessToken(context.Context) (string, error)
+	// IsRefreshRequest reports whether a request is to the token refresh
+	// endpoint. This request alone should not be sent using OAuth - it uses the
+	// client secret to authenticate.
+	IsRefreshRequest(method, path string) bool
 }
 
 // Client encapsulates a standard HTTP backend with authorization.
@@ -47,7 +51,7 @@ type Client struct {
 	HTTPClient          *http.Client
 	accountSid          string
 	UserAgentExtensions []string
-	oAuth               OAuth
+	OAuth               OAuth
 }
 
 // default http Client should not follow redirects and return the most recent response.
@@ -139,6 +143,7 @@ var userAgentOnce sync.Once
 // SendRequest verifies, constructs, and authorizes an HTTP request.
 func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 	headers map[string]interface{}, body ...byte) (*http.Response, error) {
+	ctx := context.TODO()
 
 	contentType := extractContentTypeHeader(headers)
 
@@ -150,10 +155,12 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 	valueReader := &strings.Reader{}
 	var req *http.Request
 
-	//For HTTP GET Method there are no body parameters. All other parameters like query, path etc
-	// are added as information in the url itself. Also while Content-Type is json, we are sending
-	// json body. In that case, data variable contains all other parameters than body, which is the
-	//same case as GET method. In that case as well all parameters will be added to url
+	// For an HTTP GET request, there are no body parameters. All other
+	// parameters (such as query and path) are appended directly to the URL.
+	// When the Content-Type is JSON, we might still send a JSON body. In that
+	// scenario, the 'data' variable holds every parameter except those in the
+	// body, just like in a GET request, where all parameters are added to
+	// the URL.
 	if method == http.MethodGet || method == http.MethodDelete || contentType == jsonContentType {
 		if data != nil {
 			v, _ := form.EncodeToStringWith(data, delimiter, escapee, keepZeros)
@@ -163,10 +170,10 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 		}
 	}
 
-	//data is already processed and information will be added to u(the url) in the
-	//previous step. Now body will solely contain json payload
+	// data is already processed and information will be added to u(the url) in the
+	// previous step. Now the body will contain only the json payload
 	if contentType == jsonContentType {
-		req, err = http.NewRequest(method, u.String(), bytes.NewBuffer(body))
+		req, err = http.NewRequestWithContext(ctx, method, u.String(), bytes.NewBuffer(body))
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +183,7 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 		if method == http.MethodPost || method == http.MethodPut {
 			valueReader = strings.NewReader(data.Encode())
 		}
-		req, err = http.NewRequestWithContext(context.Background(), method, u.String(), valueReader)
+		req, err = http.NewRequestWithContext(ctx, method, u.String(), valueReader)
 		if err != nil {
 			return nil, err
 		}
@@ -187,14 +194,13 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 	if credErr != nil {
 		return nil, credErr
 	}
-	if c.OAuth() == nil && c.Username != "" && c.Password != "" {
+	if c.OAuth == nil && c.Username != "" && c.Password != "" {
 		req.SetBasicAuth(c.basicAuth())
 	}
 
 	// E.g. "User-Agent": "twilio-go/1.0.0 (darwin amd64) go/go1.17.8"
 	userAgentOnce.Do(func() {
 		goVersion := runtime.Version()
-		fmt.Printf("Go version: %s\n", goVersion)
 		if strings.HasPrefix(goVersion, "devel ") {
 			// everything after "devel " is the interesting part
 			parts := strings.SplitN(goVersion, " ", 3)
@@ -209,18 +215,18 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 	if len(c.UserAgentExtensions) > 0 {
 		userAgent += " " + strings.Join(c.UserAgentExtensions, " ")
 	}
-	if c.OAuth() != nil {
-		oauth := c.OAuth()
-		token, _ := c.OAuth().GetAccessToken(context.TODO())
+	req.Header.Add("User-Agent", userAgent)
+
+	if c.OAuth != nil && !c.OAuth.IsRefreshRequest(method, u.Path) {
+		fmt.Println("call get access token")
+		token, _ := c.OAuth.GetAccessToken(ctx)
+		fmt.Println("token", token)
 		if token != "" {
 			req.Header.Add("Authorization", "Bearer "+token)
 		}
-		c.SetOauth(oauth) // Set the OAuth token in the client which gets nullified after the token fetch
 	} else if c.Username != "" && c.Password != "" {
 		req.SetBasicAuth(c.basicAuth())
 	}
-
-	req.Header.Add("User-Agent", userAgent)
 
 	for k, v := range headers {
 		req.Header.Add(k, fmt.Sprint(v))
@@ -236,12 +242,4 @@ func (c *Client) SetAccountSid(sid string) {
 // AccountSid returns the Account SID.
 func (c *Client) AccountSid() string {
 	return c.accountSid
-}
-
-func (c *Client) SetOauth(oauth OAuth) {
-	c.oAuth = oauth
-}
-
-func (c *Client) OAuth() OAuth {
-	return c.oAuth
 }
