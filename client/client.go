@@ -148,7 +148,6 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 	}
 
 	valueReader := &strings.Reader{}
-	goVersion := runtime.Version()
 	var req *http.Request
 
 	//For HTTP GET Method there are no body parameters. All other parameters like query, path etc
@@ -194,6 +193,15 @@ func (c *Client) SendRequest(method string, rawURL string, data url.Values,
 
 	// E.g. "User-Agent": "twilio-go/1.0.0 (darwin amd64) go/go1.17.8"
 	userAgentOnce.Do(func() {
+		goVersion := runtime.Version()
+		fmt.Printf("Go version: %s\n", goVersion)
+		if strings.HasPrefix(goVersion, "devel ") {
+			// everything after "devel " is the interesting part
+			parts := strings.SplitN(goVersion, " ", 3)
+			if len(parts) == 3 {
+				goVersion = parts[1]
+			}
+		}
 		baseUserAgent = fmt.Sprintf("twilio-go/%s (%s %s) go/%s", LibraryVersion, runtime.GOOS, runtime.GOARCH, goVersion)
 	})
 	userAgent := baseUserAgent
